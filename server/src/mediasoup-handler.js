@@ -30,40 +30,57 @@ class MediasoupHandler {
 
   async init() {
     if (this.worker) {
+      console.log('Mediasoup worker already initialized');
       return;
     }
 
-    this.worker = await mediasoup.createWorker({
-      logLevel: 'warn',
-      rtcMinPort: this.config.rtcMinPort,
-      rtcMaxPort: this.config.rtcMaxPort,
-    });
+    console.log('Initializing mediasoup worker...');
+    console.log(`Worker config: rtcMinPort=${this.config.rtcMinPort}, rtcMaxPort=${this.config.rtcMaxPort}`);
+    
+    try {
+      this.worker = await mediasoup.createWorker({
+        logLevel: 'warn',
+        rtcMinPort: this.config.rtcMinPort,
+        rtcMaxPort: this.config.rtcMaxPort,
+      });
+      console.log('Mediasoup worker created successfully');
+    } catch (error) {
+      console.error('Failed to create mediasoup worker:', error);
+      throw error;
+    }
 
     this.worker.on('died', () => {
       console.error('mediasoup worker died, exiting in 2 seconds...');
       setTimeout(() => process.exit(1), 2000);
     });
 
-    this.router = await this.worker.createRouter({
-      mediaCodecs: [
-        {
-          kind: 'video',
-          mimeType: 'video/H264',
-          clockRate: 90000,
-          payloadType: 96,
-          rtcpFeedback: [
-            { type: 'goog-remb' },
-            { type: 'ccm', parameter: 'fir' },
-            { type: 'nack' },
-            { type: 'nack', parameter: 'pli' },
-          ],
-          parameters: {
-            'packetization-mode': 1,
-            'profile-level-id': '42e01f',
+    console.log('Creating mediasoup router...');
+    try {
+      this.router = await this.worker.createRouter({
+        mediaCodecs: [
+          {
+            kind: 'video',
+            mimeType: 'video/H264',
+            clockRate: 90000,
+            payloadType: 96,
+            rtcpFeedback: [
+              { type: 'goog-remb' },
+              { type: 'ccm', parameter: 'fir' },
+              { type: 'nack' },
+              { type: 'nack', parameter: 'pli' },
+            ],
+            parameters: {
+              'packetization-mode': 1,
+              'profile-level-id': '42e01f',
+            },
           },
-        },
-      ],
-    });
+        ],
+      });
+      console.log('Mediasoup router created successfully');
+    } catch (error) {
+      console.error('Failed to create mediasoup router:', error);
+      throw error;
+    }
   }
 
   async createIngest(streamKey, { port, rtcpPort, ssrc }) {
@@ -75,8 +92,6 @@ class MediasoupHandler {
       comedia: true,
       enableSctp: false,
       appData: { streamKey, role: 'ingest' },
-      port,
-      rtcpPort,
     });
 
     transport.on('tuple', (tuple) => {
@@ -98,9 +113,36 @@ class MediasoupHandler {
     });
     this.producers.set(streamKey, producer);
 
+    console.log(`Producer created for streamKey: ${streamKey}, id: ${producer.id}, kind: ${producer.kind}`);
+
     producer.observer.on('close', () => {
+      console.log(`Producer closed for streamKey: ${streamKey}, id: ${producer.id}`);
       this.producers.delete(streamKey);
     });
+
+    // Producer 상태 모니터링
+    producer.on('videoorientationchange', (videoOrientation) => {
+      console.log(`Producer video orientation changed: ${JSON.stringify(videoOrientation)}`);
+    });
+
+    // Producer 통계 정보 주기적으로 확인 (성능을 위해 간격 증가)
+    const producerStatsInterval = setInterval(async () => {
+      try {
+        if (!producer.closed) {
+          const stats = await producer.getStats();
+          // 성능을 위해 상세 로깅 감소
+          const firstStat = stats[0];
+          if (firstStat) {
+            console.log(`Producer ${streamKey} - Bitrate: ${Math.round(firstStat.bitrate / 1000)}kbps, Packets: ${firstStat.packetCount}`);
+          }
+        } else {
+          clearInterval(producerStatsInterval);
+        }
+      } catch (err) {
+        console.log(`Failed to get producer stats for ${streamKey}:`, err.message);
+        clearInterval(producerStatsInterval);
+      }
+    }, 30000); // 30초로 간격 증가
 
     return {
       transportId: transport.id,
@@ -164,8 +206,29 @@ class MediasoupHandler {
     });
 
     this.webRtcTransports.set(transport.id, transport);
+    
+    console.log(`WebRTC transport created: ${transport.id}, direction: ${direction}, streamKey: ${streamKey}`);
+
     transport.observer.on('close', () => {
+      console.log(`WebRTC transport closed: ${transport.id}`);
       this.webRtcTransports.delete(transport.id);
+    });
+
+    // WebRTC transport 이벤트 모니터링
+    transport.on('icestatechange', (iceState) => {
+      console.log(`WebRTC transport ${transport.id} ICE state changed to: ${iceState}`);
+    });
+
+    transport.on('iceselectedtuplechange', (iceSelectedTuple) => {
+      console.log(`WebRTC transport ${transport.id} ICE selected tuple changed:`, iceSelectedTuple);
+    });
+
+    transport.on('dtlsstatechange', (dtlsState) => {
+      console.log(`WebRTC transport ${transport.id} DTLS state changed to: ${dtlsState}`);
+    });
+
+    transport.on('sctpstatechange', (sctpState) => {
+      console.log(`WebRTC transport ${transport.id} SCTP state changed to: ${sctpState}`);
     });
 
     return {
@@ -177,27 +240,57 @@ class MediasoupHandler {
   }
 
   async connectWebRtcTransport(transportId, dtlsParameters) {
+    console.log(`Connecting WebRTC transport: ${transportId}`);
     const transport = this.webRtcTransports.get(transportId);
     if (!transport) {
       throw new Error(`transport ${transportId} not found`);
     }
+    
+    console.log(`Transport ${transportId} current states:`, {
+      iceState: transport.iceState,
+      dtlsState: transport.dtlsState,
+      sctpState: transport.sctpState,
+    });
+    
     await transport.connect({ dtlsParameters });
+    console.log(`WebRTC transport connected: ${transportId}`);
+    
+    console.log(`Transport ${transportId} states after connect:`, {
+      iceState: transport.iceState,
+      dtlsState: transport.dtlsState,
+      sctpState: transport.sctpState,
+    });
+    
     return { transportId };
   }
 
   async consume(streamKey, transportId, rtpCapabilities) {
+    console.log(`Creating consumer for streamKey: ${streamKey}, transportId: ${transportId}`);
+    
     const transport = this.webRtcTransports.get(transportId);
     if (!transport) {
       throw new Error(`transport ${transportId} not found`);
     }
+    console.log(`Transport found: ${transportId}`);
+    
     const producer = this.producers.get(streamKey);
     if (!producer) {
       throw new Error(`producer for ${streamKey} not found`);
+    }
+    console.log(`Producer found: ${producer.id}, kind: ${producer.kind}, paused: ${producer.paused}, closed: ${producer.closed}`);
+    
+    // Producer의 통계 정보 확인
+    try {
+      const stats = await producer.getStats();
+      console.log('Producer stats:', JSON.stringify(stats, null, 2));
+    } catch (err) {
+      console.log('Failed to get producer stats:', err.message);
     }
 
     if (!this.router.canConsume({ producerId: producer.id, rtpCapabilities })) {
       throw new Error('rtpCapabilities cannot consume this stream');
     }
+    console.log('RTP capabilities check passed');
 
     const consumer = await transport.consume({
       producerId: producer.id,
@@ -205,11 +298,54 @@ class MediasoupHandler {
       paused: true,
       appData: { streamKey, role: 'webrtc-consumer' },
     });
+    console.log(`Consumer created: ${consumer.id}, kind: ${consumer.kind}, paused: ${consumer.paused}`);
 
     this.consumers.set(consumer.id, consumer);
     consumer.observer.on('close', () => {
+      console.log(`Consumer ${consumer.id} closed for streamKey: ${streamKey}`);
       this.consumers.delete(consumer.id);
     });
+
+    // Consumer 이벤트 모니터링
+    consumer.on('transportclose', () => {
+      console.log(`Consumer ${consumer.id} transport closed`);
+    });
+
+    consumer.on('producerclose', () => {
+      console.log(`Consumer ${consumer.id} producer closed`);
+    });
+
+    consumer.on('producerpause', () => {
+      console.log(`Consumer ${consumer.id} producer paused`);
+    });
+
+    consumer.on('producerresume', () => {
+      console.log(`Consumer ${consumer.id} producer resumed`);
+    });
+
+    consumer.on('score', (score) => {
+      console.log(`Consumer ${consumer.id} score updated:`, score);
+    });
+
+    consumer.on('layerschange', (layers) => {
+      console.log(`Consumer ${consumer.id} layers changed:`, layers);
+    });
+
+    // Consumer 통계 정보 주기적으로 확인 (성능을 위해 간격 증가)
+    const consumerStatsInterval = setInterval(async () => {
+      try {
+        if (!consumer.closed) {
+          const stats = await consumer.getStats();
+          // 성능을 위해 상세 로깅 감소
+          console.log(`Consumer ${consumer.id} - Packets: ${stats.length > 0 ? 'receiving' : 'none'}`);
+        } else {
+          clearInterval(consumerStatsInterval);
+        }
+      } catch (err) {
+        console.log(`Failed to get consumer stats for ${consumer.id}:`, err.message);
+        clearInterval(consumerStatsInterval);
+      }
+    }, 30000); // 30초로 간격 증가
 
     return {
       id: consumer.id,
@@ -220,11 +356,67 @@ class MediasoupHandler {
   }
 
   async resumeConsumer(consumerId) {
+    console.log(`Resuming consumer: ${consumerId} - Start time: ${new Date().toISOString()}`);
     const consumer = this.consumers.get(consumerId);
     if (!consumer) {
       throw new Error(`consumer ${consumerId} not found`);
     }
-    await consumer.resume();
+    
+    console.log(`Consumer found: ${consumerId}`, {
+      paused: consumer.paused,
+      closed: consumer.closed,
+      producerPaused: consumer.producerPaused,
+      score: consumer.score,
+    });
+    
+    if (consumer.closed) {
+      throw new Error(`consumer ${consumerId} is closed`);
+    }
+    
+    if (!consumer.paused) {
+      console.log(`Consumer ${consumerId} is already resumed`);
+      return { consumerId, alreadyResumed: true };
+    }
+    
+    try {
+      console.log(`Calling consumer.resume() for ${consumerId} at ${new Date().toISOString()}`);
+      await consumer.resume();
+      console.log(`Consumer.resume() completed for ${consumerId} at ${new Date().toISOString()}, paused: ${consumer.paused}`);
+    } catch (err) {
+      console.error(`Failed to resume consumer ${consumerId}:`, err);
+      throw err;
+    }
+    
+    // 즉시 상태 확인
+    console.log(`Consumer ${consumerId} state after resume:`, {
+      paused: consumer.paused,
+      closed: consumer.closed,
+      producerPaused: consumer.producerPaused,
+      score: consumer.score,
+    });
+    
+    // Producer도 확인
+    const streamKey = consumer.appData.streamKey;
+    if (streamKey) {
+      const producer = this.producers.get(streamKey);
+      if (producer) {
+        console.log(`Producer ${producer.id} state:`, {
+          paused: producer.paused,
+          closed: producer.closed,
+        });
+      }
+    }
+    
+    // Consumer 상태 재확인
+    setTimeout(async () => {
+      try {
+        const stats = await consumer.getStats();
+        console.log(`Consumer ${consumerId} stats after resume:`, JSON.stringify(stats, null, 2));
+      } catch (err) {
+        console.log(`Failed to get consumer stats after resume:`, err.message);
+      }
+    }, 1000);
+    
     return { consumerId };
   }
 

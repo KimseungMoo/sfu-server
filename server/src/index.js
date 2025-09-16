@@ -279,3 +279,16 @@ server.listen(HTTP_PORT, () => {
   console.log(`SFU server listening on port ${HTTP_PORT}`);
   console.log(`Video files will be stored in ${VIDEO_ROOT}`);
 });
+
+// 서버 종료 시 모든 녹화 프로세스 정리
+function cleanup() {
+  console.log('Server shutting down, cleaning up recording processes...');
+  recordingManager.stopAllRecordings();
+  process.exit(0);
+}
+
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
+process.on('exit', () => {
+  recordingManager.stopAllRecordings();
+});

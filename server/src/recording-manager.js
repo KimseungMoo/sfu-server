@@ -6,6 +6,33 @@ class RecordingManager {
   constructor({ videoRoot }) {
     this.videoRoot = videoRoot;
     this.recordings = new Map();
+    this.cleanupExistingProcesses();
+  }
+
+  cleanupExistingProcesses() {
+    console.log('Cleaning up existing FFmpeg recording processes...');
+    try {
+      // macOS/Linux에서 FFmpeg 녹화 프로세스 찾기 및 종료
+      const { spawn } = require('child_process');
+      
+      // FFmpeg 프로세스 중 SDP 파일을 사용하는 프로세스 찾기
+      const killProcess = spawn('pkill', ['-f', 'ffmpeg.*\\.sdp'], { stdio: 'pipe' });
+      
+      killProcess.on('exit', (code) => {
+        if (code === 0) {
+          console.log('Successfully cleaned up existing FFmpeg recording processes');
+        } else {
+          console.log('No existing FFmpeg recording processes found (or cleanup completed)');
+        }
+      });
+      
+      killProcess.on('error', (error) => {
+        console.log('Note: Could not cleanup existing FFmpeg processes:', error.message);
+      });
+      
+    } catch (error) {
+      console.log('Note: Could not cleanup existing FFmpeg processes:', error.message);
+    }
   }
 
   ensureDirectory({ trainingId, sessionId, studentId }) {
@@ -41,6 +68,9 @@ class RecordingManager {
   }
 
   startRecording(session, { ip, port, rtcpPort, payloadType, ssrc }) {
+    // 동일한 streamKey로 이미 실행 중인 녹화가 있다면 중지
+    this.stopRecording(session.streamKey);
+    
     const filePaths = this.buildFilePaths(session);
     const sdpContent = this.createSdpContent({ ip, port, rtcpPort, payloadType, ssrc });
     fs.writeFileSync(filePaths.sdpPath, `${sdpContent}\n`);
@@ -75,8 +105,31 @@ class RecordingManager {
     if (!entry) {
       return;
     }
-    entry.process.kill('SIGINT');
+    
+    const process = entry.process;
+    if (process && !process.killed) {
+      console.log(`Stopping recording process for ${streamKey} (PID: ${process.pid})`);
+      
+      // 먼저 SIGINT로 정상 종료 시도
+      process.kill('SIGINT');
+      
+      // 3초 후에도 종료되지 않으면 강제 종료
+      setTimeout(() => {
+        if (!process.killed) {
+          console.log(`Force killing recording process for ${streamKey} (PID: ${process.pid})`);
+          process.kill('SIGKILL');
+        }
+      }, 3000);
+    }
+    
     this.recordings.delete(streamKey);
+  }
+
+  stopAllRecordings() {
+    console.log(`Stopping all recording processes (${this.recordings.size} active recordings)`);
+    for (const streamKey of this.recordings.keys()) {
+      this.stopRecording(streamKey);
+    }
   }
 
   getStatus() {
