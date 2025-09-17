@@ -39,6 +39,7 @@ const recordingPortAllocator = new PortAllocator({ start: 6000, end: 6200 });
 
 mediasoupHandler.setTupleListener((streamKey, tuple) => {
   const remote = `${tuple.remoteIp}:${tuple.remotePort}`;
+  console.log(`[RTP][INGEST] streamKey=${streamKey} remote=${remote}`);
   sessionStore.addSender(streamKey, remote);
   sessionStore.updateSession(streamKey, {
     status: 'streaming',
@@ -92,20 +93,20 @@ app.post('/api/session/start', async (req, res) => {
     recordPorts = recordingPortAllocator.allocatePair();
     sessionStore.updateSession(streamKey, { recordPorts });
 
-    const recordingFiles = recordingManager.startRecording(sessionStore.getSession(streamKey), {
-      ip: '127.0.0.1',
-      port: recordPorts.rtpPort,
-      rtcpPort: recordPorts.rtcpPort,
-      payloadType: 96,
-      ssrc,
-    });
-    recordingStarted = true;
+    // const recordingFiles = recordingManager.startRecording(sessionStore.getSession(streamKey), {
+    //   ip: '127.0.0.1',
+    //   port: recordPorts.rtpPort,
+    //   rtcpPort: recordPorts.rtcpPort,
+    //   payloadType: 96,
+    //   ssrc,
+    // });
+    // recordingStarted = true;
 
-    await mediasoupHandler.createRecordingPipeline(streamKey, {
-      ip: '127.0.0.1',
-      port: recordPorts.rtpPort,
-      rtcpPort: recordPorts.rtcpPort,
-    });
+    // await mediasoupHandler.createRecordingPipeline(streamKey, {
+    //   ip: '127.0.0.1',
+    //   port: recordPorts.rtpPort,
+    //   rtcpPort: recordPorts.rtcpPort,
+    // });
 
     respond(res, 200, {
       status: 'ready',
@@ -114,7 +115,7 @@ app.post('/api/session/start', async (req, res) => {
       rtcpPort: ingest.rtcpPort,
       ssrc,
       payloadType: 96,
-      recording: recordingFiles,
+      // recording: recordingFiles,
     });
   } catch (error) {
     console.error('failed to start session', error);
@@ -164,8 +165,8 @@ app.post('/api/session/stop', async (req, res) => {
 app.get('/api/sessions', (req, res) => {
   respond(res, 200, {
     sessions: sessionStore.listSessions(),
-    senderMappings: sessionStore.getSenderMappings(),
-    mappingStats: sessionStore.getMappingStats(),
+    // senderMappings: sessionStore.getSenderMappings(),
+    // mappingStats: sessionStore.getMappingStats(),
   });
 });
 

@@ -93,12 +93,18 @@ class MediasoupHandler {
       enableSctp: false,
       appData: { streamKey, role: 'ingest' },
     });
+    console.log(`[RTP][INGEST] streamKey=${streamKey} rtpPort=${transport.tuple.localPort} rtcpPort=${transport.rtcpTuple?.localPort}`)
 
     transport.on('tuple', (tuple) => {
       if (this.onTuple) {
         this.onTuple(streamKey, tuple);
       }
     });
+
+    transport.on('rtcpTuple', (rtcpTuple) => {
+      console.log(`[RTCP] streamKey=${streamKey} remote=${rtcpTuple.remoteIp}:${rtcpTuple.remotePort}`)
+    })
+
 
     this.ingestTransports.set(streamKey, transport);
     transport.observer.on('close', () => {
