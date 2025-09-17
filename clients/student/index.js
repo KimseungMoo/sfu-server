@@ -107,23 +107,23 @@ function buildCameraFfmpegArgs({
 }) {
   const args = [
     '-f', 'avfoundation',
-    '-framerate', String(framerate || 30),
-    // '-video_size', '1280x720',  // 명시적으로 캡처 해상도 설정
+    '-framerate', String(framerate || 20),  // 프레임레이트를 20fps로 감소
+    '-video_size', '1280x720',  // 해상도를 720p로 감소
     '-pixel_format', 'uyvy422',
     '-i', `${camera}:none`,
     '-an',
-    // '-vf', 'scale=1280:720',  // 출력 해상도 고정
-    '-c:v', 'h264_videotoolbox',
+    '-vf', 'scale=1280:720',  // 출력 해상도를 720p로 고정
+    '-c:v', 'h264_videotoolbox',  // 하드웨어 인코더 사용
     '-pix_fmt', 'yuv420p',
-    '-profile:v', 'baseline',  // 낮은 지연시간을 위해 baseline 사용
+    '-profile:v', 'baseline',
     '-level', '3.1',
-    '-g', '15',  // GOP size 감소 (keyframe 간격 단축으로 지연시간 감소)
-    '-keyint_min', '15',  // Minimum keyframe interval 감소
-    '-bf', '0',  // B-frames 비활성화 (지연시간 감소)
-    '-sc_threshold', '0',  // Scene change threshold
-    '-allow_sw', '1',  // 하드웨어 인코더 실패 시 소프트웨어 폴백 허용
-    '-realtime', '1',  // 실시간 인코딩 활성화
-    '-low_power', '1',  // 낮은 지연시간 모드
+    '-g', '20',  // GOP size를 20으로 증가 (CPU 부하 감소)
+    '-keyint_min', '20',
+    '-bf', '0',
+    '-sc_threshold', '0',
+    '-allow_sw', '1',
+    '-realtime', '1',
+    '-low_power', '1',
   ];
 
   if (bitrate) {
@@ -155,26 +155,26 @@ function buildCameraFfmpegArgsSoftware({
   ssrc,
   targetUrl,
 }) {
-  console.log('Using software encoder (libx264) as fallback');
+  // console.log('Using software encoder (libx264) as fallback');
   const args = [
     '-f', 'avfoundation',
-    '-framerate', String(framerate || 30),
-    '-video_size', '1280x720',  // 명시적으로 캡처 해상도 설정
+    '-framerate', String(framerate || 20),  // 프레임레이트를 20fps로 감소
+    '-video_size', '1280x720',  // 해상도를 720p로 감소
     '-pixel_format', 'uyvy422',
     '-i', `${camera}:none`,
     '-an',
-    '-vf', 'scale=1280:720',  // 출력 해상도 고정
+    '-vf', 'scale=1280:720',  // 출력 해상도를 720p로 고정
     '-c:v', 'libx264',  // 소프트웨어 인코더 사용
-    '-preset', 'ultrafast',  // 낮은 지연시간을 위한 설정
+    '-preset', 'fast',  // ultrafast 대신 fast 사용 (CPU와 품질의 균형)
     '-tune', 'zerolatency',
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'baseline',
     '-level', '3.1',
-    '-g', '15',  // GOP size 감소 (지연시간 감소)
-    '-keyint_min', '15',  // Minimum keyframe interval 감소
-    '-bf', '0',  // B-frames 비활성화
-    '-sc_threshold', '0',  // Scene change threshold
-    '-threads', '0',  // 모든 사용 가능한 CPU 스레드 사용
+    '-g', '20',  // GOP size를 20으로 증가 (CPU 부하 감소)
+    '-keyint_min', '20',
+    '-bf', '0',
+    '-sc_threshold', '0',
+    '-threads', '2',  // CPU 스레드를 2개로 제한 (과도한 CPU 사용 방지)
   ];
 
   if (bitrate) {
@@ -208,17 +208,19 @@ function buildFileFfmpegArgs({
     '-re',
     '-stream_loop', '-1',
     '-i', source,
+    '-vf', 'scale=1280:720',  // 해상도를 720p로 스케일링
     '-c:v', 'libx264',
-    '-preset', 'ultrafast',
+    '-preset', 'fast',  // ultrafast 대신 fast 사용
     '-tune', 'zerolatency',
     '-profile:v', 'baseline',
     '-level', '3.1',
     '-g', '30',  // GOP size (keyframe interval)
     '-keyint_min', '30',  // Minimum keyframe interval
     '-sc_threshold', '0',  // Scene change threshold
-    '-b:v', '2M',
-    '-maxrate', '2M',
-    '-bufsize', '4M',
+    '-threads', '2',  // CPU 스레드를 2개로 제한
+    '-b:v', '1500k',  // 비트레이트를 1.5M으로 감소
+    '-maxrate', '1800k',  // 최대 비트레이트 감소
+    '-bufsize', '3000k',  // 버퍼 크기 감소
     '-f', 'rtp',
     '-payload_type', String(payloadType || 96),
     '-ssrc', String(ssrc),
@@ -240,7 +242,7 @@ async function main() {
     if (!devices.length) {
       console.log('no cameras detected');
     } else {
-      console.log('available cameras:');
+      // console.log('available cameras:');
       devices.forEach((device) => {
         console.log(`  [${device.index}] ${device.name}`);
       });
@@ -254,7 +256,7 @@ async function main() {
     process.exit(1);
   }
 
-  const startResponse = await postJson(`${server}/api/session/start`, {
+  const startResponse = await postJson(`${server}/api/port/allocate`, {
     trainingId,
     sessionId,
     studentId,
@@ -265,16 +267,21 @@ async function main() {
     rtpUrl,
     rtcpPort,
     ssrc,
-    payloadType,
   } = startResponse;
 
-  console.log('session ready');
-  console.log(`streamKey: ${streamKey}`);
-  console.log(`rtpUrl: ${rtpUrl}`);
-  console.log(`rtcpPort: ${rtcpPort}`);
-  console.log(`ssrc: ${ssrc}`);
+  // console.log('session ready');
+  // console.log(`rtpUrl: ${rtpUrl}`);
+  // console.log(`rtcpPort: ${rtcpPort}`);
+  // console.log(`ssrc: ${ssrc}`);
 
-  const targetUrl = rtcpPort ? `${rtpUrl}?rtcpport=${rtcpPort}&pkt_size=1200` : `${rtpUrl}?pkt_size=1200`;
+  // Build target RTP URL safely: server may already include query (e.g. '?rtcpport=...')
+  let targetUrl = rtpUrl;
+  const hasQuery = rtpUrl.includes('?');
+  if (rtcpPort && !rtpUrl.includes('rtcpport=')) {
+    targetUrl += (hasQuery ? '&' : '?') + `rtcpport=${rtcpPort}`;
+  }
+  // Always cap packet size for MTU safety
+  targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'pkt_size=1200';
   // const targetUrl = `${rtpUrl}?pkt_size=1200`
   let ffmpegArgs;
   let softwareFfmpegArgs = null;
@@ -291,12 +298,12 @@ async function main() {
       process.exit(1);
     }
 
-    console.log(`using camera [${selected.index}] ${selected.name}`);
+    // console.log(`using camera [${selected.index}] ${selected.name}`);
     ffmpegArgs = buildCameraFfmpegArgs({
       camera: selected.index,
       framerate: parseIntOrUndefined(options.framerate) || undefined,
       bitrate: options.bitrate,
-      payloadType,
+      payloadType: 96,
       ssrc,
       targetUrl,
     });
@@ -306,27 +313,27 @@ async function main() {
       camera: selected.index,
       framerate: parseIntOrUndefined(options.framerate) || undefined,
       bitrate: options.bitrate,
-      payloadType,
+      payloadType: 96,
       ssrc,
       targetUrl,
     });
   } else {
     ffmpegArgs = buildFileFfmpegArgs({
       source,
-      payloadType,
+      payloadType: 96,
       ssrc,
       targetUrl,
     });
   }
 
   const startFfmpeg = (args, useSoftwareEncoder = false) => {
-    console.log(`starting ffmpeg ${useSoftwareEncoder ? '(software encoder)' : '(hardware encoder)'} -> ${targetUrl}`);
+    // console.log(`starting ffmpeg ${useSoftwareEncoder ? '(software encoder)' : '(hardware encoder)'} -> ${targetUrl}`);
     const ffmpeg = spawn('ffmpeg', args, { stdio: 'inherit' });
 
     const stopSession = async () => {
       try {
-        await postJson(`${server}/api/session/stop`, { streamKey });
-        console.log('session stopped');
+        await postJson(`${server}/api/stream/close`, { streamKey });
+        // console.log('session stopped');
       } catch (error) {
         console.error('failed to stop session', error);
       }
@@ -334,7 +341,7 @@ async function main() {
 
     ffmpeg.on('exit', async (code) => {
       if (code !== 0 && !useSoftwareEncoder && camera !== undefined && softwareFfmpegArgs) {
-        console.log(`Hardware encoder failed with code ${code}, trying software encoder...`);
+        // console.log(`Hardware encoder failed with code ${code}, trying software encoder...`);
         startFfmpeg(softwareFfmpegArgs, true);
         return;
       }

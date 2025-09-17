@@ -62,7 +62,7 @@ class RecordingManager {
       `m=video ${port} RTP/AVP ${payloadType}`,
       `a=rtcp:${rtcpPort}`,
       `a=rtpmap:${payloadType} H264/90000`,
-      'a=fmtp:96 packetization-mode=1;profile-level-id=42e01f',
+      `a=fmtp:${payloadType} packetization-mode=1;profile-level-id=42e01f`,
       `a=ssrc:${ssrc} cname:stream-${ssrc}`,
     ].join('\n');
   }
@@ -76,7 +76,11 @@ class RecordingManager {
     fs.writeFileSync(filePaths.sdpPath, `${sdpContent}\n`);
 
     const args = [
+      '-hide_banner',
+      '-loglevel', 'warning',
       '-protocol_whitelist', 'file,udp,rtp',
+      '-fflags', '+genpts',
+      '-use_wallclock_as_timestamps', '1',
       '-i', filePaths.sdpPath,
       '-c', 'copy',
       '-movflags', 'faststart',
@@ -91,7 +95,12 @@ class RecordingManager {
       filePaths,
     });
 
-    child.stderr.on('data', () => {});
+    child.stderr.on('data', (data) => {
+      const line = data.toString();
+      if (line && line.trim()) {
+        console.log(`[recording ${session.streamKey}] ${line.trim()}`);
+      }
+    });
     child.on('exit', (code) => {
       console.log(`recording stopped for ${session.streamKey} (code ${code})`);
       this.recordings.delete(session.streamKey);

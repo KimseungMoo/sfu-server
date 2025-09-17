@@ -66,8 +66,9 @@ app.post('/api/port/allocate', async (req, res) => {
   const session = sessionStore.getSession(streamKey);
   if (session) {
     respond(res, 200, {
-      rtpUrl: `rtp://${SFU_IP}:${ingest.rtpPort}?rtcpport=${ingest.rtcpPort}`,
-      rtcpPort: ingest.rtcpPort,
+      // streamKey,
+      rtpUrl: `rtp://${SFU_IP}:${session.ingestPorts.rtpPort}?rtcpport=${session.ingestPorts.rtcpPort}`,
+      rtcpPort: session.ingestPorts.rtcpPort,
       ssrc: session.ssrc,
     });
     return;
@@ -113,6 +114,7 @@ app.post('/api/port/allocate', async (req, res) => {
     // });
 
     respond(res, 200, {
+      // streamKey,
       rtpUrl: `rtp://${SFU_IP}:${ingest.rtpPort}?rtcpport=${ingest.rtcpPort}`,
       rtcpPort: ingest.rtcpPort,
       ssrc,
@@ -129,7 +131,7 @@ app.post('/api/port/allocate', async (req, res) => {
     await mediasoupHandler.closeSession(streamKey).catch(() => {});
     ingestPortAllocator.release(ports);
     sessionStore.removeSession(streamKey);
-    respond(res, 500, { error: 'failed to start session' });
+    respond(res, 500, { error: 'failed to start session', details: error.message });
   }
 });
 // 스트림 종료 API

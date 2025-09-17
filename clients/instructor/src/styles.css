@@ -10,8 +10,7 @@ body {
 
 .app {
   padding: 24px;
-  max-width: 640px;
-  margin: 0 auto;
+  max-width: none;
 }
 
 .controls {
@@ -59,8 +58,52 @@ button:disabled {
   margin-bottom: 12px;
 }
 
-video {
+/* Video grid layout for multiple streams */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 12px;
+}
+
+.video-grid video {
   width: 100%;
+  height: 100%;
+  aspect-ratio: 16 / 9;
   background: #000;
   border-radius: 8px;
+  object-fit: contain;
 }
+
+/* Minimal utility classes to support 2x2 layout (Tailwind-like) */
+.w-screen { width: 100vw; }
+.h-screen { height: 100vh; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.relative { position: relative; }
+.absolute { position: absolute; }
+.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+.top-0 { top: 0; }
+.left-0 { left: 0; }
+.right-0 { right: 0; }
+.bottom-0 { bottom: 0; }
+.z-10 { z-index: 10; }
+.z-20 { z-index: 20; }
+.p-2 { padding: 0.5rem; }
+.pt-16 { padding-top: 4rem; }
+.bg-black { background: #000; }
+.bg-opacity-90 { background-color: rgba(0,0,0,0.9); }
+.border { border: 1px solid #475569; }
+.border-gray-500 { border-color: #6b7280; }
+.border-gray-600 { border-color: #4b5563; }
+.overflow-hidden { overflow: hidden; }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1 1 0%; min-width: 0; min-height: 0; }
+.object-cover { object-fit: cover; }
+.text-white { color: #fff; }
+.text-xs { font-size: 0.75rem; }
+.text-sm { font-size: 0.875rem; }
+.font-bold { font-weight: 700; }
+.font-medium { font-weight: 500; }
+.rounded { border-radius: 0.25rem; }
