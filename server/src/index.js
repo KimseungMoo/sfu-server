@@ -34,12 +34,12 @@ const mediasoupHandler = new MediasoupHandler({
 
 const sessionStore = new SessionStore();
 const recordingManager = new RecordingManager({ videoRoot: VIDEO_ROOT });
-const ingestPortAllocator = new PortAllocator({ start: RTP_START_PORT, end: RTP_START_PORT + 400 });
-const recordingPortAllocator = new PortAllocator({ start: 6000, end: 6200 });
+const ingestPortAllocator = new PortAllocator({ start: RTP_START_PORT, end: RTP_START_PORT + 1000 });
+const recordingPortAllocator = new PortAllocator({ start: 22000, end: 23000 });
 
 mediasoupHandler.setTupleListener((streamKey, tuple) => {
   const remote = `${tuple.remoteIp}:${tuple.remotePort}`;
-  console.log(`[RTP][INGEST] streamKey=${streamKey} remote=${remote}`);
+  // console.log(`[RTP][INGEST] streamKey=${streamKey} remote=${remote}`);
   sessionStore.addSender(streamKey, remote);
   sessionStore.updateSession(streamKey, {
     status: 'streaming',
@@ -50,23 +50,28 @@ mediasoupHandler.setTupleListener((streamKey, tuple) => {
 function respond(res, status, payload) {
   res.status(status).json(payload);
 }
-
-app.get('/healthz', (req, res) => {
-  respond(res, 200, { status: 'ok' });
-});
-
-app.post('/api/session/start', async (req, res) => {
-  const { trainingId, sessionId, studentId } = req.body || {};
+// 포트 할당 API (이미 할당된 포트가 있으면 그 포트를 반환)
+app.post('/api/port/allocate', async (req, res) => {
+  const { trainingId, sessionId, studentId, streamKey: requestStreamKey } = req.body || {};
   if (!trainingId || !sessionId || !studentId) {
     respond(res, 400, { error: 'trainingId, sessionId and studentId are required' });
     return;
   }
 
-  const streamKey = uuidv4();
+  const streamKey = requestStreamKey || uuidv4();
   const ports = ingestPortAllocator.allocatePair();
   let recordPorts;
   let recordingStarted = false;
-
+  // sessionStore에 동일한 streamKey가 있으면 create 안함
+  const session = sessionStore.getSession(streamKey);
+  if (session) {
+    respond(res, 200, {
+      rtpUrl: `rtp://${SFU_IP}:${ingest.rtpPort}?rtcpport=${ingest.rtcpPort}`,
+      rtcpPort: ingest.rtcpPort,
+      ssrc: session.ssrc,
+    });
+    return;
+  }
   sessionStore.createSession({
     trainingId,
     sessionId,
@@ -84,7 +89,6 @@ app.post('/api/session/start', async (req, res) => {
     });
 
     sessionStore.updateSession(streamKey, {
-      status: 'ready',
       ssrc,
       ingestTransportId: ingest.transportId,
       rtpParameters: ingest.rtpParameters,
@@ -109,12 +113,9 @@ app.post('/api/session/start', async (req, res) => {
     // });
 
     respond(res, 200, {
-      status: 'ready',
-      streamKey,
-      rtpUrl: `rtp://${SFU_IP}:${ingest.rtpPort}`,
+      rtpUrl: `rtp://${SFU_IP}:${ingest.rtpPort}?rtcpport=${ingest.rtcpPort}`,
       rtcpPort: ingest.rtcpPort,
       ssrc,
-      payloadType: 96,
       // recording: recordingFiles,
     });
   } catch (error) {
@@ -131,8 +132,8 @@ app.post('/api/session/start', async (req, res) => {
     respond(res, 500, { error: 'failed to start session' });
   }
 });
-
-app.post('/api/session/stop', async (req, res) => {
+// 스트림 종료 API
+app.post('/api/stream/close', async (req, res) => {
   const { streamKey } = req.body || {};
   if (!streamKey) {
     respond(res, 400, { error: 'streamKey is required' });
@@ -161,28 +162,13 @@ app.post('/api/session/stop', async (req, res) => {
     respond(res, 500, { error: 'failed to stop session' });
   }
 });
-
+// 스트림 목록 반환 API
 app.get('/api/sessions', (req, res) => {
+  const sessions = sessionStore.listSessions();
+  const streamKeys = sessions.map((session) => session.streamKey);
   respond(res, 200, {
-    sessions: sessionStore.listSessions(),
-    // senderMappings: sessionStore.getSenderMappings(),
-    // mappingStats: sessionStore.getMappingStats(),
-  });
-});
-
-app.get('/api/mediasoup/status', (req, res) => {
-  try {
-    const status = mediasoupHandler.getStatus();
-    respond(res, 200, status);
-  } catch (error) {
-    respond(res, 500, { error: error.message });
-  }
-});
-
-app.get('/api/rtp/status', (req, res) => {
-  respond(res, 200, {
-    senderMappings: sessionStore.getSenderMappings(),
-    recordings: recordingManager.getStatus(),
+    // sessions: sessionStore.listSessions(),
+    streamKeys,
   });
 });
 
@@ -283,7 +269,7 @@ server.listen(HTTP_PORT, () => {
 
 // 서버 종료 시 모든 녹화 프로세스 정리
 function cleanup() {
-  console.log('Server shutting down, cleaning up recording processes...');
+  // console.log('Server shutting down, cleaning up recording processes...');
   recordingManager.stopAllRecordings();
   process.exit(0);
 }

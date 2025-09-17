@@ -275,6 +275,7 @@ async function main() {
   console.log(`ssrc: ${ssrc}`);
 
   const targetUrl = rtcpPort ? `${rtpUrl}?rtcpport=${rtcpPort}&pkt_size=1200` : `${rtpUrl}?pkt_size=1200`;
+  // const targetUrl = `${rtpUrl}?pkt_size=1200`
   let ffmpegArgs;
   let softwareFfmpegArgs = null;
   if (camera !== undefined) {
